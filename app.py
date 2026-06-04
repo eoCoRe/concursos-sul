@@ -5,8 +5,9 @@ Execute com: streamlit run app.py
 
 import streamlit as st
 import pandas as pd
+from datetime import date
 from database import carregar_concursos, total_no_banco
-from scraper import coletar_todos, salvar_concursos
+from scraper import coletar_todos, salvar_concursos, AREAS
 
 st.set_page_config(
     page_title="Concursos Sul",
@@ -16,6 +17,8 @@ st.set_page_config(
 
 st.title("📋 Concursos Públicos — Região Sul")
 
+TODAS_AREAS = list(AREAS.keys())
+
 # ── Barra lateral: filtros ────────────────────────────────────────────────────
 with st.sidebar:
     st.header("Filtros")
@@ -23,43 +26,73 @@ with st.sidebar:
     estados_sel = st.multiselect(
         "Estado",
         options=["SC", "PR", "RS"],
-        default=["SC", "PR"],
+        default=["SC", "PR", "RS"],
+    )
+
+    areas_sel = st.multiselect(
+        "Área",
+        options=TODAS_AREAS,
+        default=[],
+        placeholder="Todas as áreas",
     )
 
     salario_min = st.number_input(
         "Salário mínimo (R$)",
         min_value=0,
-        value=3000,
+        value=0,
         step=500,
     )
 
     niveis_sel = st.multiselect(
         "Nível de escolaridade",
         options=["Superior", "Médio", "Fundamental", "Não informado"],
-        default=["Superior", "Médio"],
+        default=[],
+        placeholder="Todos os níveis",
+    )
+
+    dias_restantes = st.slider(
+        "Fechar em até (dias)",
+        min_value=1,
+        max_value=180,
+        value=180,
+        help="Mostra apenas editais que fecham dentro deste prazo",
     )
 
     apenas_com_vagas = st.checkbox("Apenas com vagas informadas", value=False)
 
     st.divider()
 
-    if st.button("🔄 Coletar agora (novo scraping)", use_container_width=True):
+    if st.button("Coletar agora (novo scraping)", use_container_width=True):
         with st.spinner("Raspando PCI Concursos..."):
             df_novo = coletar_todos()
             if not df_novo.empty:
                 salvar_concursos(df_novo)
                 st.success(f"{len(df_novo)} concursos coletados e salvos!")
+                st.rerun()
             else:
                 st.warning("Nenhum dado coletado. Verifique a conexão.")
 
-# ── Métricas de resumo ────────────────────────────────────────────────────────
+# ── Carrega dados com filtros ─────────────────────────────────────────────────
 df = carregar_concursos(
     estados=estados_sel if estados_sel else None,
     salario_min=salario_min if salario_min > 0 else None,
     niveis=niveis_sel if niveis_sel else None,
+    areas=areas_sel if areas_sel else None,
     apenas_com_vagas=apenas_com_vagas,
 )
 
+# Calcula dias restantes e aplica filtro de prazo
+hoje = date.today()
+if not df.empty and "data_limite" in df.columns:
+    df["data_limite_dt"] = pd.to_datetime(df["data_limite"], errors="coerce").dt.date
+    df["dias_restantes"] = df["data_limite_dt"].apply(
+        lambda d: (d - hoje).days if pd.notna(d) else None
+    )
+    # Aplica filtro de prazo (ignora registros sem data)
+    df = df[df["dias_restantes"].isna() | (df["dias_restantes"] <= dias_restantes)]
+    df = df[df["dias_restantes"].isna() | (df["dias_restantes"] >= 0)]
+
+# ── Métricas de resumo ────────────────────────────────────────────────────────
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Total no banco", total_no_banco())
 col2.metric("Exibindo agora", len(df))
@@ -74,57 +107,88 @@ col4.metric(
 
 st.divider()
 
+
+def _badge_dias(dias):
+    """Retorna HTML com badge colorido conforme urgência."""
+    if dias is None or pd.isna(dias):
+        return '<span style="color:#888">—</span>'
+    dias = int(dias)
+    if dias <= 7:
+        cor = "#e74c3c"   # vermelho — urgente
+        icone = "🔴"
+    elif dias <= 30:
+        cor = "#e67e22"   # laranja — atenção
+        icone = "🟠"
+    else:
+        cor = "#27ae60"   # verde — tranquilo
+        icone = "🟢"
+    return (
+        f'<span style="color:{cor};font-weight:bold">'
+        f'{icone} {dias}d'
+        f'</span>'
+    )
+
+
 # ── Tabela principal ──────────────────────────────────────────────────────────
 if df.empty:
     st.info("Nenhum concurso encontrado com os filtros selecionados. Clique em 'Coletar agora' para buscar dados.")
 else:
-    # Colunas amigáveis para exibição
-    colunas_exibir = {
-        "orgao": "Órgão",
-        "estado": "Estado",
-        "vagas": "Vagas",
-        "salario": "Salário (R$)",
-        "nivel": "Nível",
-        "cargo": "Cargos",
-        "data_limite": "Data Limite",
-        "link": "Link",
-    }
-
-    df_exibir = df[list(colunas_exibir.keys())].rename(columns=colunas_exibir)
+    df_exibir = df.copy()
 
     # Formata salário
-    df_exibir["Salário (R$)"] = df_exibir["Salário (R$)"].apply(
+    df_exibir["salario_fmt"] = df_exibir["salario"].apply(
         lambda x: f"R$ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") if pd.notna(x) else "—"
     )
 
-    # Transforma link em HTML clicável
-    df_exibir["Link"] = df_exibir["Link"].apply(
+    # Dias restantes com badge colorido
+    df_exibir["prazo"] = df_exibir["dias_restantes"].apply(_badge_dias)
+
+    # Data formatada BR
+    df_exibir["data_fmt"] = df_exibir["data_limite_dt"].apply(
+        lambda d: d.strftime("%d/%m/%Y") if pd.notna(d) else "—"
+    )
+
+    # Link clicável
+    df_exibir["link_fmt"] = df_exibir["link"].apply(
         lambda url: f'<a href="{url}" target="_blank">Ver edital</a>' if url else "—"
     )
 
-    st.write(
-        df_exibir.to_html(escape=False, index=False),
-        unsafe_allow_html=True,
-    )
+    colunas_html = {
+        "orgao": "Órgão",
+        "estado": "UF",
+        "area": "Área",
+        "vagas": "Vagas",
+        "salario_fmt": "Salário",
+        "nivel": "Nível",
+        "cargo": "Cargos",
+        "data_fmt": "Encerra em",
+        "prazo": "Dias Restantes",
+        "link_fmt": "Edital",
+    }
+
+    tabela = df_exibir[list(colunas_html.keys())].rename(columns=colunas_html)
+
+    st.write(tabela.to_html(escape=False, index=False), unsafe_allow_html=True)
 
     st.divider()
 
     # ── Gráficos ──────────────────────────────────────────────────────────────
-    col_g1, col_g2 = st.columns(2)
+    col_g1, col_g2, col_g3 = st.columns(3)
 
     with col_g1:
-        st.subheader("Concursos por Estado")
-        contagem_estado = df["estado"].value_counts()
-        st.bar_chart(contagem_estado)
+        st.subheader("Por Estado")
+        st.bar_chart(df["estado"].value_counts())
 
     with col_g2:
-        st.subheader("Distribuição por Nível")
-        contagem_nivel = df["nivel"].value_counts()
-        st.bar_chart(contagem_nivel)
+        st.subheader("Por Área")
+        st.bar_chart(df["area"].value_counts())
 
-    # Download CSV
+    with col_g3:
+        st.subheader("Por Nível")
+        st.bar_chart(df["nivel"].value_counts())
+
     st.download_button(
-        label="⬇️ Baixar CSV",
+        label="Baixar CSV",
         data=df.to_csv(index=False, encoding="utf-8-sig"),
         file_name="concursos_sul.csv",
         mime="text/csv",

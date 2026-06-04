@@ -28,6 +28,7 @@ def criar_tabela():
                 salario     REAL,
                 nivel       TEXT,
                 cargo       TEXT,
+                area        TEXT,
                 data_limite TEXT,
                 link        TEXT UNIQUE,
                 coletado_em TEXT
@@ -45,8 +46,8 @@ def salvar_concursos(df: pd.DataFrame):
                 con.execute(
                     """
                     INSERT OR IGNORE INTO concursos
-                        (orgao, estado, vagas, salario, nivel, cargo, data_limite, link, coletado_em)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        (orgao, estado, vagas, salario, nivel, cargo, area, data_limite, link, coletado_em)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         row.get("orgao"),
@@ -55,6 +56,7 @@ def salvar_concursos(df: pd.DataFrame):
                         row.get("salario"),
                         row.get("nivel"),
                         row.get("cargo"),
+                        row.get("area"),
                         row.get("data_limite"),
                         row.get("link"),
                         row.get("coletado_em"),
@@ -69,7 +71,9 @@ def carregar_concursos(
     estados: list[str] | None = None,
     salario_min: float | None = None,
     niveis: list[str] | None = None,
+    areas: list[str] | None = None,
     apenas_com_vagas: bool = False,
+    dias_restantes_max: int | None = None,
 ) -> pd.DataFrame:
     """Carrega concursos do banco aplicando filtros opcionais."""
     criar_tabela()
@@ -89,6 +93,11 @@ def carregar_concursos(
         placeholders = ",".join("?" * len(niveis))
         query += f" AND nivel IN ({placeholders})"
         params.extend(niveis)
+
+    if areas:
+        placeholders = ",".join("?" * len(areas))
+        query += f" AND area IN ({placeholders})"
+        params.extend(areas)
 
     if apenas_com_vagas:
         query += " AND vagas IS NOT NULL AND vagas > 0"

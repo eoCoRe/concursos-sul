@@ -71,6 +71,38 @@ def _detectar_nivel(texto: str) -> str:
     return " / ".join(partes) if partes else "Não informado"
 
 
+AREAS = {
+    "TI / Tecnologia":    ["tecnologia", "informação", "ti ", "t.i", "sistemas", "analista de sistema",
+                           "desenvolvedor", "programador", "infraestrutura", "redes", "suporte técnico",
+                           "banco de dados", "segurança da informação", "ciência da computação"],
+    "Saúde":              ["médico", "enfermeiro", "enfermagem", "farmacêutico", "farmácia", "odontólogo",
+                           "dentista", "fisioterapeuta", "psicólogo", "nutricionista", "biomédico",
+                           "fonoaudiólogo", "radiologista", "veterinário", "agente de saúde", "ubs", "sus"],
+    "Educação":           ["professor", "pedagogo", "docente", "educação", "escola", "ensino",
+                           "magistério", "diretor escolar", "orientador educacional"],
+    "Jurídico":           ["advogado", "procurador", "defensor", "jurídico", "assessor jurídico",
+                           "analista jurídico", "direito", "oab"],
+    "Administrativo":     ["administrativo", "assistente administrativo", "secretário", "recepcionista",
+                           "auxiliar administrativo", "agente administrativo", "escriturário"],
+    "Fiscal / Tributário":["fiscal", "auditor", "tributário", "receita", "fazenda", "tributo"],
+    "Engenharia":         ["engenheiro", "engenharia", "arquiteto", "arquitetura", "agrônomo", "agronomia"],
+    "Segurança Pública":  ["guarda municipal", "policial", "agente de segurança", "bombeiro",
+                           "agente penitenciário", "socioeducativo"],
+    "Contabilidade":      ["contador", "contabilidade", "contábil", "analista contábil"],
+    "Outros":             [],
+}
+
+
+def _detectar_area(orgao: str, cargo: str) -> str:
+    texto = (orgao + " " + cargo).lower()
+    for area, palavras in AREAS.items():
+        if area == "Outros":
+            continue
+        if any(p in texto for p in palavras):
+            return area
+    return "Outros"
+
+
 def raspar_pagina(url: str) -> list[dict]:
     try:
         r = requests.get(url, headers=HEADERS, timeout=15)
@@ -125,6 +157,8 @@ def raspar_pagina(url: str) -> list[dict]:
                     except ValueError:
                         pass
 
+            area = _detectar_area(orgao, cargo)
+
             concursos.append({
                 "orgao": orgao,
                 "estado": estado,
@@ -132,6 +166,7 @@ def raspar_pagina(url: str) -> list[dict]:
                 "salario": salario,
                 "nivel": nivel,
                 "cargo": cargo,
+                "area": area,
                 "data_limite": data_limite,
                 "link": link,
                 "coletado_em": datetime.now().isoformat(),
