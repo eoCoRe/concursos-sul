@@ -24,6 +24,7 @@ def criar_tabela():
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
                 orgao       TEXT,
                 estado      TEXT,
+                cidade      TEXT,
                 vagas       INTEGER,
                 salario     REAL,
                 nivel       TEXT,
@@ -46,12 +47,13 @@ def salvar_concursos(df: pd.DataFrame):
                 con.execute(
                     """
                     INSERT OR IGNORE INTO concursos
-                        (orgao, estado, vagas, salario, nivel, cargo, area, data_limite, link, coletado_em)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        (orgao, estado, cidade, vagas, salario, nivel, cargo, area, data_limite, link, coletado_em)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         row.get("orgao"),
                         row.get("estado"),
+                        row.get("cidade"),
                         row.get("vagas"),
                         row.get("salario"),
                         row.get("nivel"),
@@ -67,8 +69,19 @@ def salvar_concursos(df: pd.DataFrame):
     log.info(f"Banco atualizado: {DB_PATH}")
 
 
+def listar_cidades() -> list[str]:
+    """Retorna lista ordenada de cidades distintas no banco (exceto 'Não informado')."""
+    criar_tabela()
+    with _conexao() as con:
+        cur = con.execute(
+            "SELECT DISTINCT cidade FROM concursos WHERE cidade != 'Não informado' ORDER BY cidade"
+        )
+        return [row[0] for row in cur.fetchall()]
+
+
 def carregar_concursos(
     estados: list[str] | None = None,
+    cidades: list[str] | None = None,
     salario_min: float | None = None,
     niveis: list[str] | None = None,
     areas: list[str] | None = None,
@@ -84,6 +97,11 @@ def carregar_concursos(
         placeholders = ",".join("?" * len(estados))
         query += f" AND estado IN ({placeholders})"
         params.extend(estados)
+
+    if cidades:
+        placeholders = ",".join("?" * len(cidades))
+        query += f" AND cidade IN ({placeholders})"
+        params.extend(cidades)
 
     if salario_min is not None:
         query += " AND salario >= ?"

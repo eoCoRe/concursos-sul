@@ -59,6 +59,31 @@ def _extrair_salario(texto: str) -> float | None:
     return max(resultados) if resultados else None
 
 
+def _extrair_cidade(orgao: str) -> str:
+    """
+    Extrai a cidade do nome do órgão.
+    Exemplos: 'Prefeitura de Cambé' → 'Cambé'
+              'Câmara Municipal de Campo Largo' → 'Campo Largo'
+              'CISCOPAR - Consórcio ... do Paraná' → 'Não informado'
+    """
+    # Padrões comuns: "de <Cidade> -", "de <Cidade>" no final, "de <Cidade>,"
+    padroes = [
+        r"(?:de|do|da)\s+([A-ZÁÉÍÓÚÂÊÎÔÛÃÕÀÇ][a-záéíóúâêîôûãõàç]+(?:\s+[A-ZÁÉÍÓÚÂÊÎÔÛÃÕÀÇ][a-záéíóúâêîôûãõàç]+)*)\s*[-–,/]",
+        r"(?:de|do|da)\s+([A-ZÁÉÍÓÚÂÊÎÔÛÃÕÀÇ][a-záéíóúâêîôûãõàç]+(?:\s+[A-ZÁÉÍÓÚÂÊÎÔÛÃÕÀÇ][a-záéíóúâêîôûãõàç]+)*)$",
+    ]
+    for p in padroes:
+        m = re.search(p, orgao)
+        if m:
+            cidade = m.group(1).strip()
+            # Ignora palavras genéricas que não são cidades
+            ignorar = {"Saúde", "Educação", "Paraná", "Santa", "Catarina", "Rio", "Grande",
+                       "Sul", "Brasil", "Norte", "Oeste", "Leste", "Centro", "Municipal",
+                       "Federal", "Estadual", "Nacional", "Regional", "Pública", "Serviço"}
+            if cidade not in ignorar and len(cidade) > 2:
+                return cidade
+    return "Não informado"
+
+
 def _detectar_nivel(texto: str) -> str:
     t = texto.lower()
     partes = []
@@ -158,10 +183,12 @@ def raspar_pagina(url: str) -> list[dict]:
                         pass
 
             area = _detectar_area(orgao, cargo)
+            cidade = _extrair_cidade(orgao)
 
             concursos.append({
                 "orgao": orgao,
                 "estado": estado,
+                "cidade": cidade,
                 "vagas": vagas,
                 "salario": salario,
                 "nivel": nivel,

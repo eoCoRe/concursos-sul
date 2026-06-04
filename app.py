@@ -6,7 +6,7 @@ Execute com: streamlit run app.py
 import streamlit as st
 import pandas as pd
 from datetime import date
-from database import carregar_concursos, total_no_banco
+from database import carregar_concursos, total_no_banco, listar_cidades
 from scraper import coletar_todos, salvar_concursos, AREAS
 
 st.set_page_config(
@@ -27,6 +27,14 @@ with st.sidebar:
         "Estado",
         options=["SC", "PR", "RS"],
         default=["SC", "PR", "RS"],
+    )
+
+    cidades_disponiveis = listar_cidades()
+    cidades_sel = st.multiselect(
+        "Cidade",
+        options=cidades_disponiveis,
+        default=[],
+        placeholder="Todas as cidades",
     )
 
     areas_sel = st.multiselect(
@@ -75,6 +83,7 @@ with st.sidebar:
 # ── Carrega dados com filtros ─────────────────────────────────────────────────
 df = carregar_concursos(
     estados=estados_sel if estados_sel else None,
+    cidades=cidades_sel if cidades_sel else None,
     salario_min=salario_min if salario_min > 0 else None,
     niveis=niveis_sel if niveis_sel else None,
     areas=areas_sel if areas_sel else None,
@@ -156,6 +165,7 @@ else:
     colunas_html = {
         "orgao": "Órgão",
         "estado": "UF",
+        "cidade": "Cidade",
         "area": "Área",
         "vagas": "Vagas",
         "salario_fmt": "Salário",
