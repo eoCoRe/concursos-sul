@@ -1,6 +1,6 @@
 """
 Scraper para PCI Concursos - Região Sul (SC, PR, RS)
-Extrai: órgão, vagas, salário, nível, estado, data limite
+Estrutura real do site: .ca (item) > .cc (estado) > .cd (vagas/salário/nível) > .ce (data)
 """
 
 import requests
@@ -25,158 +25,139 @@ HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
 
-ESTADOS_SUL = {"SC", "PR", "RS"}
 
-URLS_REGIAO_SUL = [
-    "https://www.pciconcursos.com.br/concursos/sul/",
-    "https://www.pciconcursos.com.br/concursos/sul/pagina2/",
-    "https://www.pciconcursos.com.br/concursos/sul/pagina3/",
-]
+def _paginas_sul() -> list[str]:
+    """Descobre quantas páginas existem e retorna todas as URLs."""
+    base = "https://www.pciconcursos.com.br/concursos/sul/"
+    urls = [base]
+    try:
+        r = requests.get(base, headers=HEADERS, timeout=15)
+        r.raise_for_status()
+        soup = BeautifulSoup(r.text, "html.parser")
+        # Paginação do PCI: links com padrão /concursos/sul/paginaN/
+        paginas = set()
+        for a in soup.select("a[href*='/concursos/sul/pagina']"):
+            m = re.search(r"pagina(\d+)", a["href"])
+            if m:
+                paginas.add(int(m.group(1)))
+        for n in sorted(paginas):
+            urls.append(f"{base}pagina{n}/")
+    except Exception as e:
+        log.warning(f"Não conseguiu descobrir paginação: {e}")
+    return urls
 
 
-def extrair_salario(texto: str) -> float | None:
-    """Converte 'R$ 5.400,00' ou 'R$5400' para float."""
-    numeros = re.findall(r"[\d\.]+,\d{2}", texto)
-    if numeros:
-        valor = numeros[0].replace(".", "").replace(",", ".")
+def _extrair_salario(texto: str) -> float | None:
+    # Pega o maior valor R$ encontrado (geralmente é o teto)
+    valores = re.findall(r"R\$\s*([\d\.]+,\d{2})", texto)
+    resultados = []
+    for v in valores:
         try:
-            return float(valor)
+            resultados.append(float(v.replace(".", "").replace(",", ".")))
         except ValueError:
             pass
-    numeros_simples = re.findall(r"\d{3,}", texto)
-    if numeros_simples:
-        try:
-            return float(numeros_simples[0])
-        except ValueError:
-            pass
-    return None
+    return max(resultados) if resultados else None
 
 
-def extrair_vagas(texto: str) -> int | None:
-    numeros = re.findall(r"\d+", texto.replace(".", ""))
-    if numeros:
-        try:
-            return int(numeros[0])
-        except ValueError:
-            pass
-    return None
-
-
-def detectar_nivel(texto: str) -> str:
-    texto_lower = texto.lower()
-    if any(p in texto_lower for p in ["superior", "graduação", "tecnólogo", "tecnologia"]):
-        return "Superior"
-    if any(p in texto_lower for p in ["médio", "medio", "técnico"]):
-        return "Médio"
-    if "fundamental" in texto_lower:
-        return "Fundamental"
-    return "Não informado"
+def _detectar_nivel(texto: str) -> str:
+    t = texto.lower()
+    partes = []
+    if any(p in t for p in ["superior", "graduação", "tecnólogo", "tecnol"]):
+        partes.append("Superior")
+    if any(p in t for p in ["médio", "medio", "técnico", "tecnico"]):
+        partes.append("Médio")
+    if "fundamental" in t:
+        partes.append("Fundamental")
+    return " / ".join(partes) if partes else "Não informado"
 
 
 def raspar_pagina(url: str) -> list[dict]:
-    """Faz o scraping de uma página do PCI Concursos e retorna lista de dicts."""
-    concursos = []
     try:
-        response = requests.get(url, headers=HEADERS, timeout=15)
-        response.raise_for_status()
+        r = requests.get(url, headers=HEADERS, timeout=15)
+        r.raise_for_status()
+        r.encoding = "utf-8"
     except requests.RequestException as e:
         log.error(f"Erro ao acessar {url}: {e}")
-        return concursos
+        return []
 
-    soup = BeautifulSoup(response.text, "html.parser")
+    soup = BeautifulSoup(r.text, "html.parser")
+    items = soup.select("div.ca")
+    log.info(f"{url} → {len(items)} concursos")
 
-    # PCI Concursos lista concursos em <article> ou linhas de tabela
-    # Tentamos os dois padrões comuns do site
-    items = soup.select("article.cn") or soup.select("div.cn") or soup.select("li.cn")
-
-    if not items:
-        # Fallback: procura por links que parecem concursos
-        items = soup.select("a[href*='/concurso/']")
-
-    log.info(f"Encontrados {len(items)} itens em {url}")
-
+    concursos = []
     for item in items:
         try:
-            texto_completo = item.get_text(" ", strip=True)
-
-            # Órgão: primeiro texto em negrito ou título do link
-            orgao_tag = item.select_one("strong, b, h2, h3, .cn-titulo")
-            orgao = orgao_tag.get_text(strip=True) if orgao_tag else item.get_text(strip=True)[:80]
-
-            # Estado (busca sigla de 2 letras no texto ou na URL)
-            estado = "Não informado"
-            match_estado = re.search(r"\b(SC|PR|RS)\b", texto_completo)
-            if match_estado:
-                estado = match_estado.group(1)
-
-            # Salário
-            salario = None
-            match_salario = re.search(r"R\$\s*[\d\.]+,\d{2}", texto_completo)
-            if match_salario:
-                salario = extrair_salario(match_salario.group())
-
-            # Vagas
-            vagas = None
-            match_vagas = re.search(r"(\d+)\s*vaga", texto_completo, re.IGNORECASE)
-            if match_vagas:
-                vagas = int(match_vagas.group(1))
-
-            # Nível
-            nivel = detectar_nivel(texto_completo)
-
-            # Data limite
-            data_limite = None
-            match_data = re.search(r"\d{2}/\d{2}/\d{4}", texto_completo)
-            if match_data:
-                try:
-                    data_limite = datetime.strptime(match_data.group(), "%d/%m/%Y").date().isoformat()
-                except ValueError:
-                    pass
-
-            # Link do edital
+            # Órgão e link
             link_tag = item.select_one("a[href]")
+            orgao = link_tag.get_text(strip=True) if link_tag else "Não informado"
             link = link_tag["href"] if link_tag else ""
             if link and not link.startswith("http"):
                 link = "https://www.pciconcursos.com.br" + link
 
-            concursos.append(
-                {
-                    "orgao": orgao,
-                    "estado": estado,
-                    "vagas": vagas,
-                    "salario": salario,
-                    "nivel": nivel,
-                    "data_limite": data_limite,
-                    "link": link,
-                    "coletado_em": datetime.now().isoformat(),
-                }
-            )
+            # Estado (.cc)
+            estado_tag = item.select_one(".cc")
+            estado = estado_tag.get_text(strip=True) if estado_tag else "Não informado"
+
+            # Vagas, salário, cargos, nível (.cd)
+            cd_tag = item.select_one(".cd")
+            cd_texto = cd_tag.get_text(" ", strip=True) if cd_tag else ""
+
+            vagas = None
+            m_vagas = re.search(r"(\d+)\s*vaga", cd_texto, re.IGNORECASE)
+            if m_vagas:
+                vagas = int(m_vagas.group(1))
+
+            salario = _extrair_salario(cd_texto)
+            nivel = _detectar_nivel(cd_texto)
+
+            # Cargos: primeiro <span> dentro de .cd
+            cargo_tag = cd_tag.select_one("span") if cd_tag else None
+            cargo = cargo_tag.get_text(" ", strip=True).split("\n")[0].strip() if cargo_tag else ""
+
+            # Data limite (.ce)
+            ce_tag = item.select_one(".ce")
+            data_limite = None
+            if ce_tag:
+                m_data = re.search(r"(\d{2}/\d{2}/\d{4})", ce_tag.get_text())
+                if m_data:
+                    try:
+                        data_limite = datetime.strptime(m_data.group(1), "%d/%m/%Y").date().isoformat()
+                    except ValueError:
+                        pass
+
+            concursos.append({
+                "orgao": orgao,
+                "estado": estado,
+                "vagas": vagas,
+                "salario": salario,
+                "nivel": nivel,
+                "cargo": cargo,
+                "data_limite": data_limite,
+                "link": link,
+                "coletado_em": datetime.now().isoformat(),
+            })
         except Exception as e:
             log.warning(f"Erro ao processar item: {e}")
-            continue
 
     return concursos
 
 
 def coletar_todos() -> pd.DataFrame:
-    """Raspa todas as páginas da região Sul e retorna DataFrame consolidado."""
+    urls = _paginas_sul()
+    log.info(f"Total de páginas encontradas: {len(urls)}")
+
     todos = []
-    for url in URLS_REGIAO_SUL:
-        log.info(f"Raspando: {url}")
-        resultado = raspar_pagina(url)
-        todos.extend(resultado)
-        time.sleep(2)  # pausa educada entre requisições
+    for url in urls:
+        todos.extend(raspar_pagina(url))
+        time.sleep(1.5)
 
     if not todos:
-        log.warning("Nenhum concurso encontrado. Verifique a conexão ou a estrutura do site.")
+        log.warning("Nenhum concurso encontrado.")
         return pd.DataFrame()
 
     df = pd.DataFrame(todos)
-
-    # Remove duplicatas pelo link
     df.drop_duplicates(subset=["link"], inplace=True)
-
-    log.info(f"Total coletado: {len(df)} concursos")
+    log.info(f"Total único coletado: {len(df)} concursos")
     return df
 
 
@@ -184,7 +165,7 @@ if __name__ == "__main__":
     df = coletar_todos()
     if not df.empty:
         salvar_concursos(df)
-        print(f"\n✓ {len(df)} concursos salvos no banco.")
-        print(df[["orgao", "estado", "vagas", "salario", "nivel", "data_limite"]].to_string(index=False))
+        print(f"\nOK: {len(df)} concursos salvos no banco.")
+        print(df[["orgao", "estado", "vagas", "salario", "nivel", "data_limite"]].head(20).to_string(index=False))
     else:
         print("Nenhum dado coletado.")

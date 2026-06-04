@@ -85,6 +85,7 @@ else:
         "vagas": "Vagas",
         "salario": "Salário (R$)",
         "nivel": "Nível",
+        "cargo": "Cargos",
         "data_limite": "Data Limite",
         "link": "Link",
     }
