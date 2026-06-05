@@ -29,6 +29,7 @@ def criar_tabela():
                 cargo       TEXT,
                 vagas       INTEGER,
                 salario     REAL,
+                salario_ref REAL,
                 nivel       TEXT,
                 area        TEXT,
                 data_limite TEXT,
@@ -49,8 +50,8 @@ def salvar_concursos(df: pd.DataFrame):
                 con.execute(
                     """
                     INSERT OR IGNORE INTO concursos
-                        (orgao, estado, cidade, cargo, vagas, salario, nivel, area, data_limite, link, coletado_em)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        (orgao, estado, cidade, cargo, vagas, salario, salario_ref, nivel, area, data_limite, link, coletado_em)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         row.get("orgao"),
@@ -59,6 +60,7 @@ def salvar_concursos(df: pd.DataFrame):
                         row.get("cargo"),
                         row.get("vagas"),
                         row.get("salario"),
+                        row.get("salario_ref"),
                         row.get("nivel"),
                         row.get("area"),
                         row.get("data_limite"),

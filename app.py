@@ -117,17 +117,22 @@ if not df.empty and "data_limite" in df.columns:
 if busca_cargo and not df.empty:
     df = df[df["cargo"].str.contains(busca_cargo, case=False, na=False)]
 
-# Aplica filtro de faixa salarial
+# Aplica filtro de faixa salarial (usa individual se disponível, senão ref do edital)
 if faixas_sel and not df.empty:
     intervalos = [FAIXAS_SALARIO[f] for f in faixas_sel]
-    mask = df["salario"].apply(
-        lambda s: any(lo <= (s or 0) < hi for lo, hi in intervalos) if pd.notna(s) else False
-    )
-    df = df[mask]
+    def _em_faixa(row):
+        val = row["salario"] if pd.notna(row.get("salario")) else row.get("salario_ref")
+        if val is None or pd.isna(val):
+            return False
+        return any(lo <= val < hi for lo, hi in intervalos)
+    df = df[df.apply(_em_faixa, axis=1)]
 
-# Ordena por salário (maior primeiro)
+# Ordena por salário (usa individual se disponível, senão ref)
 if not df.empty:
-    df = df.sort_values("salario", ascending=False, na_position="last")
+    df["_sal_ord"] = df.apply(
+        lambda r: r["salario"] if pd.notna(r.get("salario")) else r.get("salario_ref"), axis=1
+    )
+    df = df.sort_values("_sal_ord", ascending=False, na_position="last").drop(columns=["_sal_ord"])
 
 # ── Métricas de resumo ────────────────────────────────────────────────────────
 col1, col2, col3, col4 = st.columns(4)
@@ -158,13 +163,26 @@ else:
             return f"🟠 {dias}d"
         return f"🟢 {dias}d"
 
+    def _salario_display(row):
+        """Individual quando declarado, senão máximo do edital com prefixo 'até'."""
+        if pd.notna(row.get("salario")):
+            return row["salario"]
+        return row.get("salario_ref")
+
+    def _salario_label(row):
+        """Marca com * quando é referência do edital, não individual."""
+        if pd.notna(row.get("salario")):
+            return ""
+        return "até"
+
     df_tabela = pd.DataFrame({
         "Órgão":        df["orgao"],
         "UF":           df["estado"],
         "Cidade":       df["cidade"],
         "Área":         df["area"],
         "Vagas":        df["vagas"].apply(lambda v: int(v) if pd.notna(v) else None),
-        "Salário":      df["salario"],
+        "Salário":      df.apply(_salario_display, axis=1),
+        "Ref":          df.apply(_salario_label, axis=1),
         "Nível":        df["nivel"],
         "Cargo":        df["cargo"],
         "Prazo":          df["dias_restantes"].apply(_urgencia),
@@ -177,14 +195,18 @@ else:
         hide_index=True,
         column_config={
             "Salário": st.column_config.NumberColumn(
-                "Salário",
+                "Salário (R$)",
                 format="R$ %.2f",
-                help="Salário específico do cargo quando informado no edital. Vazio = não declarado individualmente.",
+            ),
+            "Ref": st.column_config.TextColumn(
+                "",
+                help="'até' = salário máximo do edital (individual não declarado). Em branco = salário específico do cargo.",
+                width="small",
             ),
             "Vagas": st.column_config.NumberColumn(
                 "Vagas",
                 format="%d",
-                help="Vazio = Cadastro de Reserva (CR) sem número definido",
+                help="Vazio = Cadastro de Reserva sem número fixo",
             ),
             "Edital": st.column_config.LinkColumn(
                 "Edital",

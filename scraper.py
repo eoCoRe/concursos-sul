@@ -179,7 +179,7 @@ def _extrair_cargos_pagina(html_text: str, salario_edital: float | None) -> list
         m_vagas = re.search(r"(\d+)\s*vaga", detalhe, re.IGNORECASE)
         vagas = int(m_vagas.group(1)) if m_vagas else None
 
-        # Salário: apenas quando explicitamente mencionado para este cargo
+        # Salário: específico do cargo quando declarado explicitamente
         salario = salarios_por_cargo.get(nome.lower()) or None
 
         # Nível
@@ -188,7 +188,7 @@ def _extrair_cargos_pagina(html_text: str, salario_edital: float | None) -> list
         resultado.append({
             "cargo": nome,
             "vagas": vagas,
-            "salario": salario,
+            "salario": salario,          # individual, pode ser None
             "nivel": nivel,
         })
 
@@ -270,7 +270,8 @@ def raspar_pagina(url: str) -> list[dict]:
                         "cidade": cidade,
                         "cargo": c["cargo"],
                         "vagas": c["vagas"],
-                        "salario": c["salario"],
+                        "salario": c["salario"],        # individual (pode ser None)
+                        "salario_ref": salario_edital,  # máximo do edital, sempre presente
                         "nivel": c["nivel"],
                         "area": _detectar_area(c["cargo"]),
                         "data_limite": data_limite,
@@ -288,6 +289,7 @@ def raspar_pagina(url: str) -> list[dict]:
                     "cargo": cargo_fallback or "Vários Cargos",
                     "vagas": None,
                     "salario": salario_edital,
+                    "salario_ref": salario_edital,
                     "nivel": _detectar_nivel(cd_texto, cargo=cargo_fallback or ""),
                     "area": _detectar_area(cargo_fallback or ""),
                     "data_limite": data_limite,
