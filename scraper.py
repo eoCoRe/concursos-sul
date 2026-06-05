@@ -48,15 +48,25 @@ def _extrair_salario_max(texto: str) -> float | None:
     return max(resultados) if resultados else None
 
 
-def _detectar_nivel(texto: str) -> str:
+def _detectar_nivel(texto: str, cargo: str = "") -> str:
     t = texto.lower()
+    c = cargo.lower()
     partes = []
+
     if any(p in t for p in ["superior", "graduação", "tecnólogo", "tecnol"]):
         partes.append("Superior")
-    if any(p in t for p in ["médio", "medio", "técnico", "tecnico"]):
+
+    # Nível Técnico: cargo começa com "técnico" OU texto menciona "curso técnico" / "nível técnico"
+    cargo_tecnico = re.match(r"^técnico\b|^tecnico\b", c)
+    texto_tecnico = any(p in t for p in ["curso técnico", "nível técnico", "ensino técnico"])
+    if cargo_tecnico or texto_tecnico:
+        partes.append("Técnico")
+    elif any(p in t for p in ["médio", "medio", "ensino médio"]):
         partes.append("Médio")
+
     if "fundamental" in t:
         partes.append("Fundamental")
+
     return " / ".join(partes) if partes else "Não informado"
 
 
@@ -173,7 +183,7 @@ def _extrair_cargos_pagina(html_text: str, salario_edital: float | None) -> list
         salario = salarios_por_cargo.get(nome.lower()) or salario_edital
 
         # Nível
-        nivel = _detectar_nivel(detalhe + " " + nome)
+        nivel = _detectar_nivel(detalhe + " " + nome, cargo=nome)
 
         resultado.append({
             "cargo": nome,
@@ -278,7 +288,7 @@ def raspar_pagina(url: str) -> list[dict]:
                     "cargo": cargo_fallback or "Vários Cargos",
                     "vagas": None,
                     "salario": salario_edital,
-                    "nivel": _detectar_nivel(cd_texto),
+                    "nivel": _detectar_nivel(cd_texto, cargo=cargo_fallback or ""),
                     "area": _detectar_area(cargo_fallback or ""),
                     "data_limite": data_limite,
                     "link": link,

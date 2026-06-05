@@ -61,7 +61,7 @@ with st.sidebar:
 
     niveis_sel = st.multiselect(
         "Nível de escolaridade",
-        options=["Superior", "Médio", "Fundamental", "Não informado"],
+        options=["Superior", "Técnico", "Médio", "Fundamental", "Não informado"],
         default=[],
         placeholder="Todos os níveis",
     )
