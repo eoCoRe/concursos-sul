@@ -83,16 +83,30 @@ with st.sidebar:
 
     st.divider()
 
-    if st.button("Coletar agora (novo scraping)", use_container_width=True):
-        with st.spinner("Raspando PCI Concursos..."):
+    if st.button("Coletar agora (scraping)", use_container_width=True):
+        with st.spinner("Raspando PCI Concursos (~2 min)..."):
             df_novo = coletar_todos()
             if not df_novo.empty:
                 salvar_concursos(df_novo)
-                st.success(f"{len(df_novo)} concursos coletados e salvos!")
+                st.success(f"{len(df_novo)} cargos coletados!")
                 st.rerun()
             else:
-                st.warning("Nenhum dado coletado. Verifique a conexão.")
-        st.caption("A coleta visita cada edital individual — leva ~5 min.")
+                st.warning("Nenhum dado coletado.")
+
+    if st.button("Enriquecer salários com IA", use_container_width=True):
+        from ai_enricher import enriquecer
+        progresso = st.progress(0, text="Iniciando IA...")
+        resultado = {"n": 0}
+
+        def _cb(atual, total, orgao):
+            resultado["n"] = atual
+            progresso.progress(atual / total, text=f"[{atual}/{total}] {orgao[:40]}...")
+
+        processados = enriquecer(callback=_cb)
+        progresso.empty()
+        st.success(f"IA atualizou {processados} editais com salários reais!")
+        st.rerun()
+    st.caption("Coleta: ~2min | Enriquecer IA: ~5min")
 
 # ── Carrega dados ─────────────────────────────────────────────────────────────
 df = carregar_concursos(

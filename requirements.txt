@@ -3,3 +3,5 @@ beautifulsoup4==4.12.3
 pandas==2.2.2
 streamlit==1.35.0
 lxml==5.2.2
+groq==0.11.0
+python-dotenv==1.0.1

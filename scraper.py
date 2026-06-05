@@ -254,46 +254,43 @@ def raspar_pagina(url: str) -> list[dict]:
             cidade = _extrair_cidade(orgao)
             coletado_em = datetime.now().isoformat()
 
-            # Visita página individual para extrair cargos
+            # Extrai cargos via regex (rápido, sem IA)
             log.info(f"  [{idx+1}/{len(items)}] {orgao}")
             r_edital = _get(link)
-            cargos = []
-            if r_edital:
-                cargos = _extrair_cargos_pagina(r_edital.text, salario_edital)
-            time.sleep(0.8)
+            cargos = _extrair_cargos_pagina(r_edital.text, salario_edital) if r_edital else []
+            time.sleep(0.5)
 
             if cargos:
                 for c in cargos:
                     linhas.append({
-                        "orgao": orgao,
-                        "estado": estado,
-                        "cidade": cidade,
-                        "cargo": c["cargo"],
-                        "vagas": c["vagas"],
-                        "salario": c["salario"],        # individual (pode ser None)
-                        "salario_ref": salario_edital,  # máximo do edital, sempre presente
-                        "nivel": c["nivel"],
-                        "area": _detectar_area(c["cargo"]),
+                        "orgao":       orgao,
+                        "estado":      estado,
+                        "cidade":      cidade,
+                        "cargo":       c["cargo"],
+                        "vagas":       c["vagas"],
+                        "salario":     c["salario"],
+                        "salario_ref": salario_edital,
+                        "nivel":       c["nivel"],
+                        "area":        _detectar_area(c["cargo"]),
                         "data_limite": data_limite,
-                        "link": link,
+                        "link":        link,
                         "coletado_em": coletado_em,
                     })
             else:
-                # Fallback: mantém uma linha com info do listing
                 cargo_tag = cd.select_one("span") if cd else None
                 cargo_fallback = cargo_tag.get_text(" ", strip=True).split("\n")[0].strip() if cargo_tag else "Vários Cargos"
                 linhas.append({
-                    "orgao": orgao,
-                    "estado": estado,
-                    "cidade": cidade,
-                    "cargo": cargo_fallback or "Vários Cargos",
-                    "vagas": None,
-                    "salario": salario_edital,
+                    "orgao":       orgao,
+                    "estado":      estado,
+                    "cidade":      cidade,
+                    "cargo":       cargo_fallback or "Vários Cargos",
+                    "vagas":       None,
+                    "salario":     salario_edital,
                     "salario_ref": salario_edital,
-                    "nivel": _detectar_nivel(cd_texto, cargo=cargo_fallback or ""),
-                    "area": _detectar_area(cargo_fallback or ""),
+                    "nivel":       _detectar_nivel(cd_texto, cargo=cargo_fallback or ""),
+                    "area":        _detectar_area(cargo_fallback or ""),
                     "data_limite": data_limite,
-                    "link": link,
+                    "link":        link,
                     "coletado_em": coletado_em,
                 })
         except Exception as e:
