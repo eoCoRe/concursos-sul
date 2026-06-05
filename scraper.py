@@ -179,8 +179,8 @@ def _extrair_cargos_pagina(html_text: str, salario_edital: float | None) -> list
         m_vagas = re.search(r"(\d+)\s*vaga", detalhe, re.IGNORECASE)
         vagas = int(m_vagas.group(1)) if m_vagas else None
 
-        # Salário: específico do cargo > salário do edital
-        salario = salarios_por_cargo.get(nome.lower()) or salario_edital
+        # Salário: apenas quando explicitamente mencionado para este cargo
+        salario = salarios_por_cargo.get(nome.lower()) or None
 
         # Nível
         nivel = _detectar_nivel(detalhe + " " + nome, cargo=nome)

@@ -159,14 +159,14 @@ else:
         return f"🟢 {dias}d"
 
     df_tabela = pd.DataFrame({
-        "Órgão":          df["orgao"],
-        "UF":             df["estado"],
-        "Cidade":         df["cidade"],
-        "Área":           df["area"],
-        "Vagas":          df["vagas"],
-        "Salário (R$)":   df["salario"],
-        "Nível":          df["nivel"],
-        "Cargos":         df["cargo"],
+        "Órgão":        df["orgao"],
+        "UF":           df["estado"],
+        "Cidade":       df["cidade"],
+        "Área":         df["area"],
+        "Vagas":        df["vagas"].apply(lambda v: int(v) if pd.notna(v) else None),
+        "Salário":      df["salario"],
+        "Nível":        df["nivel"],
+        "Cargo":        df["cargo"],
         "Prazo":          df["dias_restantes"].apply(_urgencia),
         "Edital":         df["link"],
     })
@@ -176,13 +176,15 @@ else:
         use_container_width=True,
         hide_index=True,
         column_config={
-            "Salário (R$)": st.column_config.NumberColumn(
-                "Salário (R$)",
+            "Salário": st.column_config.NumberColumn(
+                "Salário",
                 format="R$ %.2f",
+                help="Salário específico do cargo quando informado no edital. Vazio = não declarado individualmente.",
             ),
             "Vagas": st.column_config.NumberColumn(
                 "Vagas",
                 format="%d",
+                help="Vazio = Cadastro de Reserva (CR) sem número definido",
             ),
             "Edital": st.column_config.LinkColumn(
                 "Edital",
