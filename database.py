@@ -1,5 +1,6 @@
 """
 Camada de persistência — SQLite via pandas + sqlite3
+Schema: UMA LINHA POR CARGO, UNIQUE(link, cargo)
 """
 
 import sqlite3
@@ -25,58 +26,59 @@ def criar_tabela():
                 orgao       TEXT,
                 estado      TEXT,
                 cidade      TEXT,
+                cargo       TEXT,
                 vagas       INTEGER,
                 salario     REAL,
                 nivel       TEXT,
-                cargo       TEXT,
                 area        TEXT,
                 data_limite TEXT,
-                link        TEXT UNIQUE,
-                coletado_em TEXT
+                link        TEXT,
+                coletado_em TEXT,
+                UNIQUE(link, cargo)
             )
             """
         )
 
 
 def salvar_concursos(df: pd.DataFrame):
-    """Insere novos concursos, ignora duplicatas (link é UNIQUE)."""
     criar_tabela()
+    inseridos = 0
     with _conexao() as con:
         for _, row in df.iterrows():
             try:
                 con.execute(
                     """
                     INSERT OR IGNORE INTO concursos
-                        (orgao, estado, cidade, vagas, salario, nivel, cargo, area, data_limite, link, coletado_em)
+                        (orgao, estado, cidade, cargo, vagas, salario, nivel, area, data_limite, link, coletado_em)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         row.get("orgao"),
                         row.get("estado"),
                         row.get("cidade"),
+                        row.get("cargo"),
                         row.get("vagas"),
                         row.get("salario"),
                         row.get("nivel"),
-                        row.get("cargo"),
                         row.get("area"),
                         row.get("data_limite"),
                         row.get("link"),
                         row.get("coletado_em"),
                     ),
                 )
+                inseridos += 1
             except sqlite3.Error as e:
-                log.warning(f"Erro ao inserir linha: {e}")
-    log.info(f"Banco atualizado: {DB_PATH}")
+                log.warning(f"Erro ao inserir: {e}")
+    log.info(f"Banco atualizado: {inseridos} linhas inseridas — {DB_PATH}")
 
 
 def listar_cidades() -> list[str]:
-    """Retorna lista ordenada de cidades distintas no banco (exceto 'Não informado')."""
     criar_tabela()
     with _conexao() as con:
         cur = con.execute(
             "SELECT DISTINCT cidade FROM concursos WHERE cidade != 'Não informado' ORDER BY cidade"
         )
-        return [row[0] for row in cur.fetchall()]
+        return [r[0] for r in cur.fetchall()]
 
 
 def carregar_concursos(
@@ -86,21 +88,17 @@ def carregar_concursos(
     niveis: list[str] | None = None,
     areas: list[str] | None = None,
     apenas_com_vagas: bool = False,
-    dias_restantes_max: int | None = None,
 ) -> pd.DataFrame:
-    """Carrega concursos do banco aplicando filtros opcionais."""
     criar_tabela()
     query = "SELECT * FROM concursos WHERE 1=1"
     params: list = []
 
     if estados:
-        placeholders = ",".join("?" * len(estados))
-        query += f" AND estado IN ({placeholders})"
+        query += f" AND estado IN ({','.join('?'*len(estados))})"
         params.extend(estados)
 
     if cidades:
-        placeholders = ",".join("?" * len(cidades))
-        query += f" AND cidade IN ({placeholders})"
+        query += f" AND cidade IN ({','.join('?'*len(cidades))})"
         params.extend(cidades)
 
     if salario_min is not None:
@@ -108,28 +106,23 @@ def carregar_concursos(
         params.append(salario_min)
 
     if niveis:
-        placeholders = ",".join("?" * len(niveis))
-        query += f" AND nivel IN ({placeholders})"
+        query += f" AND nivel IN ({','.join('?'*len(niveis))})"
         params.extend(niveis)
 
     if areas:
-        placeholders = ",".join("?" * len(areas))
-        query += f" AND area IN ({placeholders})"
+        query += f" AND area IN ({','.join('?'*len(areas))})"
         params.extend(areas)
 
     if apenas_com_vagas:
         query += " AND vagas IS NOT NULL AND vagas > 0"
 
-    query += " ORDER BY data_limite ASC"
+    query += " ORDER BY salario DESC NULLS LAST"
 
     with _conexao() as con:
-        df = pd.read_sql_query(query, con, params=params)
-
-    return df
+        return pd.read_sql_query(query, con, params=params)
 
 
 def total_no_banco() -> int:
     criar_tabela()
     with _conexao() as con:
-        cur = con.execute("SELECT COUNT(*) FROM concursos")
-        return cur.fetchone()[0]
+        return con.execute("SELECT COUNT(*) FROM concursos").fetchone()[0]

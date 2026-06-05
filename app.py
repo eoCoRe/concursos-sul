@@ -74,6 +74,11 @@ with st.sidebar:
         help="Mostra apenas editais que fecham dentro deste prazo",
     )
 
+    busca_cargo = st.text_input(
+        "Buscar cargo",
+        placeholder="Ex: Analista de TI, Médico...",
+    )
+
     apenas_com_vagas = st.checkbox("Apenas com vagas informadas", value=False)
 
     st.divider()
@@ -87,6 +92,7 @@ with st.sidebar:
                 st.rerun()
             else:
                 st.warning("Nenhum dado coletado. Verifique a conexão.")
+        st.caption("A coleta visita cada edital individual — leva ~5 min.")
 
 # ── Carrega dados ─────────────────────────────────────────────────────────────
 df = carregar_concursos(
@@ -106,6 +112,10 @@ if not df.empty and "data_limite" in df.columns:
     )
     df = df[df["dias_restantes"].isna() | (df["dias_restantes"] <= dias_restantes)]
     df = df[df["dias_restantes"].isna() | (df["dias_restantes"] >= 0)]
+
+# Aplica busca por cargo (texto livre)
+if busca_cargo and not df.empty:
+    df = df[df["cargo"].str.contains(busca_cargo, case=False, na=False)]
 
 # Aplica filtro de faixa salarial
 if faixas_sel and not df.empty:
