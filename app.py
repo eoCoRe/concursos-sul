@@ -6,7 +6,7 @@ Execute com: streamlit run app.py
 import streamlit as st
 import pandas as pd
 from datetime import date
-from database import carregar_concursos, total_no_banco, listar_cidades
+from database import carregar_concursos, total_no_banco, listar_cidades, total_pendentes_ia
 from scraper import coletar_todos, salvar_concursos, AREAS
 
 st.set_page_config(
@@ -83,30 +83,35 @@ with st.sidebar:
 
     st.divider()
 
-    if st.button("Coletar agora (scraping)", use_container_width=True):
-        with st.spinner("Raspando PCI Concursos (~2 min)..."):
+    if st.button("Atualizar concursos", use_container_width=True, type="primary"):
+        from ai_enricher import enriquecer
+        from database import total_pendentes_ia
+
+        # Passo 1: scraping rápido
+        with st.spinner("Buscando novos editais..."):
             df_novo = coletar_todos()
             if not df_novo.empty:
-                salvar_concursos(df_novo)
-                st.success(f"{len(df_novo)} cargos coletados!")
-                st.rerun()
+                novos = salvar_concursos(df_novo)
             else:
-                st.warning("Nenhum dado coletado.")
+                novos = 0
 
-    if st.button("Enriquecer salários com IA", use_container_width=True):
-        from ai_enricher import enriquecer
-        progresso = st.progress(0, text="Iniciando IA...")
-        resultado = {"n": 0}
+        pendentes = total_pendentes_ia()
+        if pendentes == 0:
+            st.success("Nenhum edital novo encontrado.")
+            st.rerun()
+        else:
+            # Passo 2: IA só nos novos
+            progresso = st.progress(0, text=f"IA extraindo salários de {pendentes} editais novos...")
 
-        def _cb(atual, total, orgao):
-            resultado["n"] = atual
-            progresso.progress(atual / total, text=f"[{atual}/{total}] {orgao[:40]}...")
+            def _cb(atual, total, orgao):
+                progresso.progress(atual / total, text=f"[{atual}/{total}] {orgao[:45]}...")
 
-        processados = enriquecer(callback=_cb)
-        progresso.empty()
-        st.success(f"IA atualizou {processados} editais com salários reais!")
-        st.rerun()
-    st.caption("Coleta: ~2min | Enriquecer IA: ~5min")
+            processados = enriquecer(callback=_cb)
+            progresso.empty()
+            st.success(f"{novos} novos cargos coletados | IA enriqueceu {processados} editais")
+            st.rerun()
+
+    st.caption("Busca novos editais e enriquece salários automaticamente com IA.")
 
 # ── Carrega dados ─────────────────────────────────────────────────────────────
 df = carregar_concursos(
@@ -149,14 +154,16 @@ if not df.empty:
     df = df.sort_values("_sal_ord", ascending=False, na_position="last").drop(columns=["_sal_ord"])
 
 # ── Métricas de resumo ────────────────────────────────────────────────────────
-col1, col2, col3, col4 = st.columns(4)
+col1, col2, col3, col4, col5 = st.columns(5)
 col1.metric("Total no banco", total_no_banco())
-col2.metric("Exibindo agora", len(df))
-col3.metric(
+pendentes = total_pendentes_ia()
+col2.metric("Pendentes IA", pendentes, help="Editais aguardando extração de salário pela IA")
+col3.metric("Exibindo agora", len(df))
+col4.metric(
     "Maior salário (filtro)",
     f"R$ {df['salario'].max():,.0f}".replace(",", ".") if not df.empty and df["salario"].notna().any() else "—",
 )
-col4.metric(
+col5.metric(
     "Total de vagas (filtro)",
     int(df["vagas"].sum()) if not df.empty and df["vagas"].notna().any() else "—",
 )

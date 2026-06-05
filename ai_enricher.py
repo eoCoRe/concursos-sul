@@ -1,82 +1,57 @@
 """
-Enriquecimento com IA — roda após o scraping básico.
-Para cada edital no banco, chama o Groq e atualiza cargo/vagas/salário.
+Enriquecimento incremental com IA.
+Processa APENAS editais com ia_ok = 0. Nunca reprocessa o que já foi feito.
 """
 
-import sqlite3
 import logging
 import time
-from pathlib import Path
 from ai_parser import extrair_cargos_com_ia, buscar_texto_edital
-from scraper import _detectar_area, _detectar_nivel
+from database import links_pendentes_ia, substituir_cargos_edital, marcar_ia_ok
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
-DB_PATH = Path(__file__).parent / "concursos.db"
 
-
-def enriquecer(max_editais: int = 999, callback=None):
+def enriquecer(callback=None) -> int:
     """
-    Lê links únicos do banco, chama IA para cada um e substitui as linhas
-    com os cargos extraídos com salário real.
-    callback(atual, total, orgao) → para mostrar progresso no Streamlit.
+    Processa todos os editais pendentes (ia_ok = 0).
+    Cada edital é processado uma única vez e marcado como ia_ok = 1.
+    callback(atual, total, orgao) → progresso para o Streamlit.
     """
-    con = sqlite3.connect(DB_PATH)
+    pendentes = links_pendentes_ia()
+    total = len(pendentes)
 
-    # Pega editais únicos que ainda não foram enriquecidos (salario IS NULL na maioria)
-    links = con.execute("""
-        SELECT DISTINCT link, orgao, estado, cidade, salario_ref, data_limite, coletado_em
-        FROM concursos
-        ORDER BY data_limite ASC
-        LIMIT ?
-    """, (max_editais,)).fetchall()
-    con.close()
+    if total == 0:
+        log.info("Nenhum edital pendente — tudo já enriquecido.")
+        return 0
 
-    total = len(links)
-    log.info(f"Enriquecendo {total} editais com IA...")
-
+    log.info(f"Enriquecendo {total} editais novos com IA...")
     processados = 0
-    for i, (link, orgao, estado, cidade, salario_ref, data_limite, coletado_em) in enumerate(links):
+
+    for i, (link, orgao, estado, cidade, salario_ref, data_limite, coletado_em) in enumerate(pendentes):
         if callback:
             callback(i + 1, total, orgao)
 
         texto = buscar_texto_edital(link)
         cargos_ia = extrair_cargos_com_ia(texto) if texto else []
 
-        if not cargos_ia:
-            log.info(f"  [{i+1}/{total}] {orgao[:50]} — IA sem resultado, mantém dados atuais")
-            time.sleep(0.3)
-            continue
-
-        con = sqlite3.connect(DB_PATH)
-        # Remove linhas antigas deste edital
-        con.execute("DELETE FROM concursos WHERE link = ?", (link,))
-
-        # Insere novas linhas com dados da IA
-        for c in cargos_ia:
-            try:
-                con.execute("""
-                    INSERT OR IGNORE INTO concursos
-                        (orgao, estado, cidade, cargo, vagas, salario, salario_ref,
-                         nivel, area, data_limite, link, coletado_em)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    orgao, estado, cidade,
-                    c["cargo"], c["vagas"], c["salario"], salario_ref,
-                    c["nivel"], _detectar_area(c["cargo"]),
-                    data_limite, link, coletado_em,
-                ))
-            except sqlite3.Error as e:
-                log.warning(f"Erro ao inserir: {e}")
-        con.commit()
-        con.close()
+        if cargos_ia:
+            substituir_cargos_edital(
+                link=link, cargos=cargos_ia,
+                orgao=orgao, estado=estado, cidade=cidade,
+                salario_ref=salario_ref, data_limite=data_limite,
+                coletado_em=coletado_em,
+            )
+            log.info(f"  [{i+1}/{total}] {orgao[:50]} — {len(cargos_ia)} cargos")
+        else:
+            # IA não encontrou nada, mas marca como processado para não tentar de novo
+            marcar_ia_ok(link)
+            log.info(f"  [{i+1}/{total}] {orgao[:50]} — sem resultado (marcado ok)")
 
         processados += 1
-        log.info(f"  [{i+1}/{total}] {orgao[:50]} — {len(cargos_ia)} cargos com IA")
-        time.sleep(1.5)  # respeita 6000 TPM do free tier
+        time.sleep(1.5)  # respeita 6000 TPM do Groq free tier
 
-    log.info(f"Enriquecimento concluído: {processados}/{total} editais atualizados pela IA")
+    log.info(f"Concluído: {processados} editais processados.")
     return processados
 
 
