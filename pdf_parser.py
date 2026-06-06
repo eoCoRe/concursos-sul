@@ -1,6 +1,6 @@
 """
 Parser de PDFs de editais de concurso.
-Baixa o PDF do edital, extrai o texto e manda para o Groq extrair a tabela de cargos/salários.
+Extrai a seção de cargos/salários do PDF e manda para o Groq.
 """
 
 import re
@@ -15,6 +15,14 @@ log = logging.getLogger(__name__)
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 
+# Marcadores que indicam início da seção de cargos/salários no PDF
+_MARCADORES = [
+    r"cargo", r"vencimento", r"remunera", r"sal[aá]rio",
+    r"quadro\s+de\s+vaga", r"tabela\s+de\s+cargo",
+]
+_RE_MARCADOR = re.compile("|".join(_MARCADORES), re.IGNORECASE)
+_RE_VALOR    = re.compile(r"R\$\s*[\d\.]+,\d{2}")
+
 
 def _buscar_links_pdf(url_artigo: str) -> list[str]:
     """Extrai links de PDF do artigo do PCI Concursos."""
@@ -25,10 +33,8 @@ def _buscar_links_pdf(url_artigo: str) -> list[str]:
         pdfs = []
         for a in soup.find_all("a", href=True):
             href = a["href"]
-            # PDFs hospedados no CDN do PCI (editais reais, não retificações)
             if "arq.pciconcursos.com.br" in href and href.endswith(".pdf"):
                 nome = href.lower()
-                # Prioriza edital principal, descarta retificações e suspensões
                 if not any(k in nome for k in ["retifica", "suspens", "erratum"]):
                     pdfs.insert(0, href)
                 else:
@@ -39,28 +45,46 @@ def _buscar_links_pdf(url_artigo: str) -> list[str]:
         return []
 
 
-def _extrair_texto_pdf(url_pdf: str, max_paginas: int = 8) -> str:
+def _extrair_secao_relevante(texto_completo: str, janela: int = 4000) -> str:
+    """
+    Em vez de pegar os primeiros N chars, encontra a seção do PDF
+    que contém a tabela de cargos e salários.
+    Estratégia: busca a primeira ocorrência de R$ e retorna
+    um bloco de `janela` chars centrado nessa região.
+    """
+    # Primeiro R$ no texto
+    m = _RE_VALOR.search(texto_completo)
+    if m:
+        # Pega contexto antes (para incluir nomes dos cargos) e depois
+        inicio = max(0, m.start() - 2000)
+        fim = min(len(texto_completo), inicio + janela)
+        return texto_completo[inicio:fim]
+
+    # Se não achar R$, retorna o começo (pode ter cargos sem salário declarado)
+    return texto_completo[:janela]
+
+
+def _extrair_texto_pdf(url_pdf: str, max_paginas: int = 15) -> str:
     """Baixa o PDF e extrai texto das primeiras N páginas."""
     try:
         r = requests.get(url_pdf, headers=HEADERS, timeout=30)
         r.raise_for_status()
-        texto_pages = []
+        partes = []
         with pdfplumber.open(io.BytesIO(r.content)) as pdf:
-            for i, page in enumerate(pdf.pages[:max_paginas]):
-                # Tenta extrair tabelas primeiro (mais estruturado)
+            for page in pdf.pages[:max_paginas]:
+                # Tabelas estruturadas primeiro
                 tabelas = page.extract_tables()
                 if tabelas:
                     for tabela in tabelas:
                         for linha in tabela:
                             if linha:
-                                texto_pages.append(" | ".join(
+                                partes.append(" | ".join(
                                     str(c).strip() if c else "" for c in linha
                                 ))
-                # Depois texto normal
                 texto = page.extract_text()
                 if texto:
-                    texto_pages.append(texto)
-        return "\n".join(texto_pages)
+                    partes.append(texto)
+        return "\n".join(partes)
     except Exception as e:
         log.warning(f"Erro ao processar PDF {url_pdf}: {e}")
         return ""
@@ -68,24 +92,23 @@ def _extrair_texto_pdf(url_pdf: str, max_paginas: int = 8) -> str:
 
 def extrair_cargos_do_pdf(url_artigo: str) -> list[dict]:
     """
-    Pipeline completo: artigo → PDF → texto → IA → cargos com salário.
-    Retorna [] se não encontrar PDF ou se a IA não extrair nada.
+    Pipeline: artigo → PDF → seção relevante → IA → cargos com salário.
     """
     pdfs = _buscar_links_pdf(url_artigo)
     if not pdfs:
-        log.info(f"Nenhum PDF encontrado em {url_artigo[-60:]}")
         return []
 
-    log.info(f"  {len(pdfs)} PDF(s) encontrado(s), processando o principal...")
+    log.info(f"  {len(pdfs)} PDF(s), processando principal...")
 
-    # Tenta o primeiro PDF (edital principal)
     for url_pdf in pdfs[:2]:
-        texto = _extrair_texto_pdf(url_pdf)
-        if not texto or len(texto) < 200:
+        texto_completo = _extrair_texto_pdf(url_pdf)
+        if not texto_completo or len(texto_completo) < 200:
             continue
 
-        log.info(f"  PDF extraído: {len(texto)} chars")
-        cargos = extrair_cargos_com_ia(texto)
+        secao = _extrair_secao_relevante(texto_completo)
+        log.info(f"  PDF: {len(texto_completo)} chars total, enviando {len(secao)} chars (seção relevante)")
+
+        cargos = extrair_cargos_com_ia(secao)
         if cargos:
             return cargos
 
