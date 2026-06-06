@@ -59,6 +59,7 @@ def extrair_cargos_com_ia(texto_edital: str) -> list[dict]:
             messages=[{"role": "user", "content": PROMPT + texto}],
             temperature=0.0,
             max_tokens=1500,
+            timeout=30,
         )
         raw = resp.choices[0].message.content.strip()
 
@@ -95,6 +96,11 @@ def extrair_cargos_com_ia(texto_edital: str) -> list[dict]:
         log.warning(f"IA retornou JSON inválido: {e}")
         return []
     except Exception as e:
+        msg = str(e)
+        # Limite diário esgotado — para imediatamente, não retenta
+        if "tokens per day" in msg or "TPD" in msg:
+            log.error("Limite diário do Groq esgotado. Tente novamente após 21h.")
+            raise RuntimeError("GROQ_DAILY_LIMIT") from e
         log.warning(f"Erro na chamada Groq: {e}")
         return []
 

@@ -36,8 +36,8 @@ def _coleta_diaria():
 def _iniciar_scheduler():
     from apscheduler.schedulers.background import BackgroundScheduler
     scheduler = BackgroundScheduler()
-    scheduler.add_job(_coleta_diaria, "interval", hours=24, id="coleta_diaria",
-                      next_run_time=None)  # não roda imediatamente ao iniciar
+    # Roda todo dia às 22h (horário local) — 1h após o reset do Groq (21h)
+    scheduler.add_job(_coleta_diaria, "cron", hour=22, minute=0, id="coleta_diaria")
     scheduler.start()
     return scheduler
 
