@@ -24,25 +24,21 @@ def _groq() -> Groq:
     return _client
 
 
-PROMPT = """Você é um extrator de dados de editais de concurso público brasileiro.
+PROMPT = """Extraia a lista de cargos deste edital de concurso público brasileiro.
+Retorne SOMENTE um array JSON válido. Nenhum texto antes ou depois.
 
-Leia o texto abaixo e retorne um JSON com a lista de cargos do edital.
-Retorne APENAS o JSON, sem explicações, sem markdown, sem blocos de código.
+Formato:
+[{"cargo":"Nome","vagas":2,"salario":3500.00,"nivel":"Médio"}]
 
-Formato obrigatório:
-[
-  {{"cargo": "Nome do Cargo", "vagas": 5, "salario": 3500.00, "nivel": "Superior"}},
-  {{"cargo": "Outro Cargo", "vagas": null, "salario": 1800.50, "nivel": "Médio"}}
-]
+Regras ESTRITAS:
+- "cargo": nome exato do cargo conforme o texto
+- "vagas": número inteiro se declarado explicitamente, null se Cadastro de Reserva (CR)
+- "salario": SOMENTE coloque um número se o texto mostrar um valor em R$ DIRETAMENTE associado a ESTE cargo específico. Se o texto só der uma faixa geral do edital (ex: "remunerações de R$1.500 a R$9.000") sem dizer qual cargo tem qual valor, coloque null. NUNCA atribua o salário de um cargo a outro.
+- "nivel": baseie-se no que o texto diz explicitamente para este cargo. "Superior"=graduação/tecnólogo, "Técnico"=curso técnico, "Médio"=ensino médio, "Fundamental"=ensino fundamental, "Não informado"=não especificado.
+- Inclua todos os cargos, mesmo CR (vagas null)
+- Se não houver cargos identificáveis, retorne []
 
-Regras:
-- "vagas": número inteiro quando declarado, null se for apenas Cadastro de Reserva (CR)
-- "salario": valor em reais como número decimal. Se houver faixa, use o valor base/inicial. null se não declarado.
-- "nivel": um de: "Superior", "Técnico", "Médio", "Fundamental", "Não informado"
-- Inclua TODOS os cargos encontrados, mesmo os de cadastro de reserva
-- Se não encontrar nenhum cargo, retorne []
-
-Texto do edital:
+Texto:
 """
 
 
@@ -54,8 +50,8 @@ def extrair_cargos_com_ia(texto_edital: str) -> list[dict]:
     if not texto_edital or len(texto_edital) < 100:
         return []
 
-    # 1500 chars ≈ 450 tokens input — cabe bem no limite de 6000 TPM
-    texto = texto_edital[:1500]
+    # 4000 chars ≈ 1200 tokens — mais contexto sem estourar os 6000 TPM
+    texto = texto_edital[:4000]
 
     try:
         resp = _groq().chat.completions.create(
